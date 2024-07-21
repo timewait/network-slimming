@@ -5,6 +5,8 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 from torchvision import datasets, transforms
+
+from diff import diff_model_state, patch_model_state
 from models import *
 
 # Prune settings
@@ -202,9 +204,34 @@ for layer_id in range(len(old_modules)):
 
         m1.weight.data = m0.weight.data[:, idx0].clone()
         m1.bias.data = m0.bias.data.clone()
+# Diff model and get the diff state, then save them to disk
+diff_state_dict = diff_model_state(newmodel, model)
 
-torch.save({'cfg': cfg, 'state_dict': newmodel.state_dict()}, os.path.join(args.save, 'pruned.pth.tar'))
+
+torch.save({'cfg': cfg, 'state_dict': newmodel.state_dict(), 'diff_state_dict': diff_state_dict}, os.path.join(args.save, 'pruned.pth.tar'))
 
 print(newmodel)
 model = newmodel
 test(model)
+
+# if you wanna recovery to original model with the diff states, you could do following steps...
+# ckpt = torch.load("PATH TO CHECKPOINT")
+# diff_state_state = ckpt["diff_state_dict"]
+# state_dict = ckpt["state_dict"]
+# cfg = ckpt["cfg"]
+#
+# new_model = densenet(depth=args.depth, dataset=args.dataset, cfg=cfg)
+# old_model = densenet(depth=args.depth, dataset=args.dataset)
+# if args.model:
+#     if os.path.isfile(args.model):
+#         print("=> loading checkpoint '{}'".format(args.model))
+#         checkpoint = torch.load(args.model)
+#         args.start_epoch = checkpoint['epoch']
+#         best_prec1 = checkpoint['best_prec1']
+#         model.load_state_dict(checkpoint['state_dict'])
+#         print("=> loaded checkpoint '{}' (epoch {}) Prec1: {:f}"
+#               .format(args.model, checkpoint['epoch'], best_prec1))
+#     else:
+#         print("=> no checkpoint found at '{}'".format(args.resume))
+#
+# model = patch_model_state(new_model, old_model, diff_state_state)
