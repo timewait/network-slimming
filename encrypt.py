@@ -49,6 +49,7 @@ def test(model, args):
         output = model(data)
         pred = output.data.max(1, keepdim=True)[1]  # get the index of the max log-probability
         correct += pred.eq(target.data.view_as(pred)).cpu().sum()
+        break
 
     print('\nTest set: Accuracy: {}/{} ({:.1f}%)\n'.format(
         correct, len(test_loader.dataset), 100. * correct / len(test_loader.dataset)))
@@ -64,7 +65,6 @@ def split(args):
         raise ValueError("Unsupported model arch.")
     if args.cuda:
         model.cuda()
-
     print("=> loading checkpoint '{}'".format(args.model))
     checkpoint = torch.load(args.model)
     args.start_epoch = checkpoint['epoch']
@@ -88,7 +88,7 @@ def split(args):
             index += size
 
     y, i = torch.sort(bn)
-    thre_index = int(total * args.percent)
+    thre_index = int(total * args.ratio)
     thre = y[thre_index]
 
     pruned = 0
@@ -204,10 +204,17 @@ def split(args):
 
 
 def recover(args):
+    if not os.path.isfile(args.model) or not args.key:
+        raise ValueError("unspecific model path or key path.")
+
+    print("=> loading keyed model'{}'".format(args.model))
     ckpt = torch.load(args.model)
-    diff_state_state = torch.load(args.key)
+    print("=> loading key'{}'".format(args.key))
+    key = torch.load(args.key)
     state_dict = ckpt["state_dict"]
+    diff_state_dict = key["diff_state_dict"]
     cfg = ckpt["cfg"]
+
     if args.arch == "resnet":
         new_model = resnet(depth=args.depth, dataset=args.dataset, cfg=cfg)
         old_model = resnet(depth=args.depth, dataset=args.dataset)
@@ -217,17 +224,11 @@ def recover(args):
     else:
         raise ValueError("Unsupported model arch.")
 
-    if os.path.isfile(args.model):
-        print("=> loading checkpoint '{}'".format(args.model))
-        checkpoint = torch.load(args.model)
-        new_model.load_state_dict(checkpoint['state_dict'])
-    if os.path.isfile(args.key):
-        key = torch.load(args.key)
-        diff_state_state = key["diff_state_dict"]
+    new_model.load_state_dict(state_dict)
 
-    recovered_model = patch_model_state(new_model, old_model, diff_state_state)
+    recovered_model = patch_model_state(new_model, old_model, diff_state_dict)
     test(recovered_model, args)
-    torch.save({"state_dict", recovered_model.state_dict()}, os.path.join(args.save, "recovered.path.tar"))
+    torch.save({"state_dict": recovered_model.state_dict()}, os.path.join(args.save, "recovered.path.tar"))
 
 
 def main(args):
@@ -248,20 +249,22 @@ if __name__ == "__main__":
                                   help="architecture of model")
     split_cmd_parser.add_argument("--ratio", type=float, default="0.5", help="scale sparse rate (default: 0.5)")
     split_cmd_parser.add_argument("--save", type=str, metavar="PATH", help="path to save pruned model")
-    split_cmd_parser.add_argument("--dataset", type=str, default="cifar100", help="training dataset (default: cifar10)")
+    split_cmd_parser.add_argument("--dataset", type=str, default="cifar10", help="training dataset (default: cifar10)")
     split_cmd_parser.add_argument("--test-batch-size", type=int, default=256, metavar="N",
                                   help="input batch size for testing (default: 256)")
-    split_cmd_parser.add_argument("--depth", type=int, default=40, help="depth of the resnet")
-    split_cmd_parser.add_argument("--percent", type=float, default=0.5, help="scale sparse rate (default: 0.5)")
+    split_cmd_parser.add_argument("--depth", type=int, default=40, help="depth of the net")
 
     recover_cmd_parser = sub_parsers.add_parser("recover", help="recovery model")
-    recover_cmd_parser.add_argument("--model", type=str, required=True, metavar="PATH", help="path to the model")
+    recover_cmd_parser.add_argument("--model", type=str, required=True, metavar="PATH", help="path to the keyed model")
+    recover_cmd_parser.add_argument("--key", type=str, required=True, metavar="PATH", help="path to key")
     recover_cmd_parser.add_argument("--arch", type=str, required=True, choices=["resnet", "densenet"],
                                     default="densenet", help="architecture of model")
-    recover_cmd_parser.add_argument("--dataset", type=str, default="cifar100",
+    recover_cmd_parser.add_argument("--dataset", type=str, default="cifar10",
                                     help="training dataset (default: cifar10)")
     recover_cmd_parser.add_argument("--test-batch-size", type=int, default=256, metavar="N",
                                     help="input batch size for testing (default: 256)")
+    recover_cmd_parser.add_argument("--save", type=str, metavar="PATH", help="path to save recovered model")
+    recover_cmd_parser.add_argument("--depth", type=int, default=40, help="depth of the net")
 
     args = parser.parse_args()
     args.cuda = args.use_cuda and torch.cuda.is_available()
