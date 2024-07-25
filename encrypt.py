@@ -72,6 +72,9 @@ def split(args):
     print("=> loaded checkpoint '{}' (epoch {}) Prec1: {:f}"
           .format(args.model, checkpoint['epoch'], best_prec1))
 
+    acc = test(model, args)
+    print(f"Original model acc {acc}")
+    
     # 计算BN层的数量
     total = 0
     for m in model.modules():
@@ -113,9 +116,9 @@ def split(args):
 
     pruned_ratio = pruned / total
 
-    acc = test(model, args)
+    
     print('Pre-processing Successful!')
-    print(f"Original model acc {acc}")
+    
 
     # build new model
     newmodel = densenet(depth=args.depth, dataset=args.dataset, cfg=cfg)
